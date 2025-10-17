@@ -132,7 +132,7 @@ def avg_D(_lambda=0.3, sync_mode=False):
 
 
 if __name__ == "__main__":
-    number_experiences = 10_000_000
+    number_experiences = 200_000
 
     count_points = 21
     # lambdas = [0.99]
