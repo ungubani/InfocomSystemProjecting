@@ -43,9 +43,44 @@ class SystemMD1:
             self.__global_time_requests_out[i_req] = global_time_out
             self.__req_wait_time[i_req] = self.__global_time_requests_out[i_req] - self.__global_time_requests_in[i_req]
 
-        self.__async_calculate_mean_N()
+        if self.__sync_mode: self.__sync_calculate_mean_N()
+        else: self.__async_calculate_mean_N()
 
         self.__mean_D = self.__req_wait_time.mean()
+
+    def __sync_calculate_mean_N(self):
+        # Двойной указатель
+        i_in = 0
+        j_out = 0
+
+        N_last = 0
+        global_time_last = 0
+
+        while j_out < self.__number_expiriences:
+            N_in_this_slot = 0
+
+            while (i_in < self.__number_expiriences and math.ceil(self.__global_time_requests_in[i_in]) <
+                   self.__global_time_requests_out[j_out]):
+                N_in_this_slot += 1
+
+                global_time_last = math.ceil(self.__global_time_requests_in[i_in])
+                i_in += 1
+
+            N_last += N_in_this_slot
+
+            if N_last not in self.__N_stat:
+                self.__N_stat[N_last] = 0
+
+            time_N_last = self.__global_time_requests_out[j_out] - global_time_last
+            self.__N_stat[N_last] += time_N_last
+
+            global_time_last = self.__global_time_requests_out[j_out]
+            N_last -= 1
+            j_out += 1
+
+        for N, N_time in self.__N_stat.items():
+            N_prob = N_time / self.__global_time_requests_out[self.__number_expiriences - 1]
+            self.__mean_N += N * N_prob
 
     def __async_calculate_mean_N(self):
         # Двойной указатель
@@ -97,7 +132,7 @@ def avg_D(_lambda=0.3, sync_mode=False):
 
 
 if __name__ == "__main__":
-    number_experiences = 50_000
+    number_experiences = 10_000_000
 
     count_points = 21
     # lambdas = [0.99]
