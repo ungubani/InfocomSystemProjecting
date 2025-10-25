@@ -1,10 +1,10 @@
-# from __future__ import annotations
 import random
 import math
 from collections import deque
 from typing import Deque, List, Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
+
 
 def poisson_sample(lmbda: float) -> int:
     if lmbda <= 0:
@@ -18,9 +18,10 @@ def poisson_sample(lmbda: float) -> int:
         if p <= L:
             return k - 1
 
+
 class Abonent:
     def __init__(self, id_: int, lambda_in: float, minW: int, maxW: int,
-                 max_queue_size: int = 10**6):
+                 max_queue_size: int = 10 ** 6):
         self.id = id_
         self.lambda_in = lambda_in
         self.minW = max(1, int(minW))
@@ -53,14 +54,17 @@ class Abonent:
             if not self.queue:
                 return None
             head = self.queue.popleft()
-            delay = current_time - head['arrival_time']
+
+            ## FIX 1: Задержка считается до конца текущего слота (current_time + 1). ##
+            delay = (current_time) - head['arrival_time']
+
             self.successes += 1
-            # self.W = max((self.W + 1) // 2, self.minW)
             self.W = self.minW
             if self.queue:
                 self.queue[0]['send_slot'] = None
                 self.schedule_head_if_needed(current_time)
-            return delay
+            return delay + 0.5
+
         elif result == 'COLLISION':
             self.collisions += 1
             self.W = min(self.W * 2, self.maxW)
@@ -69,9 +73,10 @@ class Abonent:
                 self.schedule_head_if_needed(current_time)
         return None
 
+
 class SystemChannel:
     def __init__(self, M: int, lambda_total: float, minW: int, maxW: int,
-                 max_queue_size: int = 10**6):
+                 max_queue_size: int = 10 ** 6):
         self.M = M
         self.lambda_total = lambda_total
         self.lambda_per_abonent = lambda_total / M
@@ -90,14 +95,14 @@ class SystemChannel:
 
     def step(self):
         t = self.time
+
         for a in self.abonents:
             a.generate_arrivals(t)
+
         for a in self.abonents:
             a.schedule_head_if_needed(t)
+
         senders = [a for a in self.abonents if a.has_scheduled_in_slot(t)]
-        # накопим текущее количество пакетов в системе
-        q_sum = sum(len(a.queue) for a in self.abonents)
-        self.total_queue_sum += q_sum
 
         if len(senders) == 0:
             self.total_empty += 1
@@ -112,6 +117,10 @@ class SystemChannel:
             self.total_collisions += 1
             for s in senders:
                 s.notify_result('COLLISION', t)
+
+        q_sum = sum(len(a.queue) for a in self.abonents)
+        self.total_queue_sum += q_sum
+
         self.time += 1
 
     def run(self, T: int):
@@ -125,6 +134,7 @@ class SystemChannel:
         avg_queue = self.total_queue_sum / total_slots
         return out_intensity, avg_delay, avg_queue
 
+
 def experiment_plot(M: int = 50,
                     lambdas: List[float] = None,
                     T: int = 20000,
@@ -133,10 +143,12 @@ def experiment_plot(M: int = 50,
                     max_queue_size: int = 1000,
                     trials: int = 3):
     if lambdas is None:
-        lambdas = [i * 0.1 for i in range(0, 201)]
+        lambdas = np.linspace(0.001, 0.99, 50)
 
     results = []
-    for lam in lambdas:
+    print("Проведение симуляции...")
+    for i, lam in enumerate(lambdas):
+        print(f"  Шаг {i + 1}/{len(lambdas)}: λ = {lam:.3f}")
         outs, delays, abonents = [], [], []
         for _ in range(trials):
             ch = SystemChannel(M, lam, minW, maxW, max_queue_size)
@@ -146,65 +158,90 @@ def experiment_plot(M: int = 50,
             delays.append(d)
             abonents.append(q)
         results.append((lam,
-                        sum(outs) / len(outs),
-                        sum(delays) / len(delays),
-                        sum(abonents) / len(abonents)))
+                        np.mean(outs),
+                        np.mean(delays),
+                        np.mean(abonents)))
 
-    lambdas = [r[0] for r in results]
+    lmbds = [r[0] for r in results]
     outs = [r[1] for r in results]
     delays = [r[2] for r in results]
     abonents = [r[3] for r in results]
 
+    # --- Теоретические расчеты для M/D/1 ---
+    theor_lambdas = [l for l in lmbds if l < 1.0]
+    avg_N_theor = [avg_N(l) for l in theor_lambdas]
+    sync_avg_D_theor = [avg_D(l, sync_mode=True) for l in theor_lambdas]
+
     plt.figure(figsize=(10, 7))
-    plt.plot(lambdas, outs)
-    plt.title(f"Интервальная экспоненциальная отсрочка: M={M}, T={T}, W[{minW},{maxW}]")
+
+    plt.plot(lmbds, outs, 'o-', label="Интенсивность выхода (симуляция)")
+    plt.plot(theor_lambdas, theor_lambdas, '--', label="Теоретическая (λ_out = λ)")
+    plt.title(f"Интервальная экспоненциальная отсрочка: M={M}, T={T}, W=[{minW},{maxW}]")
     plt.ylabel("Интенсивность выхода (успехи/слот)")
     plt.grid(True)
+    plt.legend()
+    plt.xlim(0, max(lmbds) * 1.05)
+    plt.ylim(0, max(outs) * 1.1)
 
-    async_avg_D_theor = np.zeros(len(lambdas))
-    avg_N_theor = np.zeros(len(lambdas))
-    for i in range(len(lambdas)):
-        async_avg_D_theor[i] = avg_D(_lambda=lambdas[i], sync_mode=False)
-        avg_N_theor[i] = avg_N(lambdas[i])
+    plt.show()
 
+    # --- График средней задержки ---
     plt.figure(figsize=(10, 7))
-    plt.title(f"Интервальная экспоненциальная отсрочка: M={M}, T={T}, W[{minW},{maxW}]")
-    plt.plot(lambdas, delays, label="$d_{avg}$")
-    plt.plot(lambdas, async_avg_D_theor, linestyle=":", label="Теоретическое (асинхр.)")
-    plt.ylabel("$d_{avg}$")
+    plt.plot(lmbds, delays, 'o-', label="$d_{avg}$ (симуляция)")
+    if M == 1:
+        plt.plot(theor_lambdas, sync_avg_D_theor, linestyle="--", label="Теоретическая M/D/1 (синхр.)")
+    plt.ylabel("Средняя задержка $d_{avg}$")
     plt.grid(True)
     plt.legend()
+    plt.xlim(0, max(lmbds) * 1.05)
+    stable_delays = [d for l, d in zip(lmbds, delays) if l < 0.95]
+    if stable_delays:
+        plt.ylim(0, max(stable_delays) * 1.5)
 
-    # TODO: Не работает. Подсчитывает больше N_avg, чем есть на самом деле
+    plt.show()
+
+    # --- График среднего числа абонентов ---
     plt.figure(figsize=(10, 7))
-    plt.title(f"Интервальная экспоненциальная отсрочка: M={M}, T={T}, W[{minW},{maxW}]")
-    plt.plot(lambdas, abonents, label="$N_{avg}$")
-    plt.plot(lambdas, avg_N_theor, linestyle=":", label=f"Теоретическое")
+    plt.plot(lmbds, abonents, 'o-', label="$N_{avg}$ (симуляция)")
+    if M == 1:
+        plt.plot(theor_lambdas, avg_N_theor, linestyle="--", label="Теоретическая M/D/1")
     plt.xlabel("Интенсивность входного потока $\lambda$")
-    plt.ylabel("$N_{avg}$")
+    plt.ylabel("Среднее число пакетов в системе $N_{avg}$")
     plt.grid(True)
     plt.legend()
+    plt.xlim(0, max(lmbds) * 1.05)
+    stable_N = [n for l, n in zip(lmbds, abonents) if l < 0.95]
+    if stable_N:
+        plt.ylim(0, max(stable_N) * 1.5)
 
     plt.tight_layout()
     plt.show()
 
+
 def avg_N(_lambda=0.3):
+    if _lambda >= 1.0:
+        return float('inf')
     return (_lambda * (2 - _lambda)) / (2 * (1 - _lambda))
 
+
 def avg_D(_lambda=0.3, sync_mode=False):
+    if _lambda >= 1.0:
+        return float('inf')
     d = avg_N(_lambda=_lambda) / _lambda
     return d + 0.5 if sync_mode else d
 
 
 if __name__ == "__main__":
-    M = 1
-    T = 200_000
+    # Была подтверждена работоспособность на паре
+
+    M = 10
+    T = 150_000
     minW = 1
-    maxW = 4096
-    max_queue_size = 50_000
+    maxW = 1
+    max_queue_size = 150_000
     trials = 1
 
-    lambdas = np.linspace(0.0001, 0.8, 9)
+    lambdas = np.linspace(0.00001, 0.9, 20)
 
     experiment_plot(M=M, lambdas=lambdas, T=T, minW=minW, maxW=maxW,
                     max_queue_size=max_queue_size, trials=trials)
