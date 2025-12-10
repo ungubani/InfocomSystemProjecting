@@ -165,8 +165,8 @@ if __name__ == "__main__":
 
     plt.figure()
     plt.title(f"Среднее число абонентов в системе для СМО M|D|1")
-    plt.xlabel(f"$\lambda$")
-    plt.ylabel(f"N($\lambda$)")
+    plt.xlabel(f"$\\lambda$")
+    plt.ylabel(f"N($\\lambda$)")
 
     plt.plot(lambdas, async_avg_N_modelling, label=f"Моделирование, асинхр.")
     plt.plot(lambdas, sync_avg_N_modelling, label=f"Моделирование, синхр.")
@@ -178,8 +178,8 @@ if __name__ == "__main__":
 
     plt.figure()
     plt.title("Среднее время нахождения заявки в системе для СМО M|D|1")
-    plt.xlabel("$\lambda$")
-    plt.ylabel("D($\lambda$)")
+    plt.xlabel("$\\lambda$")
+    plt.ylabel("D($\\lambda$)")
     plt.plot(lambdas, async_avg_D_modelling, label="Моделирование, асинхр.")
     plt.plot(lambdas, sync_avg_D_modelling, label="Моделирование, синхр.")
     plt.plot(lambdas, async_avg_D_theor, linestyle=":", label="Теоретическое (асинхр.)")

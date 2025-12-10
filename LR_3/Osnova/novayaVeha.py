@@ -1,3 +1,4 @@
+import addcopyfighandler
 import random
 import math
 from collections import deque
@@ -167,30 +168,31 @@ def experiment_plot(M: int = 50,
     delays = [r[2] for r in results]
     abonents = [r[3] for r in results]
 
-    # --- Теоретические расчеты для M/D/1 ---
     theor_lambdas = [l for l in lmbds if l < 1.0]
     avg_N_theor = [avg_N(l) for l in theor_lambdas]
     sync_avg_D_theor = [avg_D(l, sync_mode=True) for l in theor_lambdas]
 
-    plt.figure(figsize=(10, 7))
+    plt.figure(figsize=(8, 5))
 
     plt.plot(lmbds, outs, 'o-', label="Интенсивность выхода (симуляция)")
     plt.plot(theor_lambdas, theor_lambdas, '--', label="Теоретическая (λ_out = λ)")
-    plt.title(f"Интервальная экспоненциальная отсрочка: M={M}, T={T}, W=[{minW},{maxW}]")
-    plt.ylabel("Интенсивность выхода (успехи/слот)")
+    plt.title(f"Интенсивность выходного потока BEB. M={M}, T={T}, W=[{minW},{maxW}]")
+    plt.xlabel("$\\lambda_{вх}$")
+    plt.ylabel("$\\lambda_{вых}=$(успехи/слот)")
     plt.grid(True)
     plt.legend()
     plt.xlim(0, max(lmbds) * 1.05)
     plt.ylim(0, max(outs) * 1.1)
 
-    plt.show()
+    # plt.show()
 
-    # --- График средней задержки ---
-    plt.figure(figsize=(10, 7))
+    plt.figure(figsize=(8, 5))
     plt.plot(lmbds, delays, 'o-', label="$d_{avg}$ (симуляция)")
     if M == 1:
         plt.plot(theor_lambdas, sync_avg_D_theor, linestyle="--", label="Теоретическая M/D/1 (синхр.)")
-    plt.ylabel("Средняя задержка $d_{avg}$")
+    plt.title(f"Средняя задержка BEB. M={M}, T={T}, W=[{minW},{maxW}]")
+    plt.xlabel("$\\lambda_{вх}$")
+    plt.ylabel("$d_{avg}$")
     plt.grid(True)
     plt.legend()
     plt.xlim(0, max(lmbds) * 1.05)
@@ -198,15 +200,15 @@ def experiment_plot(M: int = 50,
     if stable_delays:
         plt.ylim(0, max(stable_delays) * 1.5)
 
-    plt.show()
+    # plt.show()
 
-    # --- График среднего числа абонентов ---
-    plt.figure(figsize=(10, 7))
+    plt.figure(figsize=(8, 5))
     plt.plot(lmbds, abonents, 'o-', label="$N_{avg}$ (симуляция)")
     if M == 1:
         plt.plot(theor_lambdas, avg_N_theor, linestyle="--", label="Теоретическая M/D/1")
-    plt.xlabel("Интенсивность входного потока $\lambda$")
-    plt.ylabel("Среднее число пакетов в системе $N_{avg}$")
+    plt.title(f"Среднее число пакетов в системе BEB. M={M}, T={T}, W=[{minW},{maxW}]")
+    plt.xlabel("$\\lambda_{вх}$")
+    plt.ylabel("$N_{avg}$")
     plt.grid(True)
     plt.legend()
     plt.xlim(0, max(lmbds) * 1.05)
@@ -215,7 +217,7 @@ def experiment_plot(M: int = 50,
         plt.ylim(0, max(stable_N) * 1.5)
 
     plt.tight_layout()
-    plt.show()
+    # plt.show()
 
 
 def avg_N(_lambda=0.3):
@@ -231,17 +233,150 @@ def avg_D(_lambda=0.3, sync_mode=False):
     return d + 0.5 if sync_mode else d
 
 
+def run_and_log_successes(M: int, lambda_total: float, T_total: int, minW: int, maxW: int,
+                          warmup_ratio: float = 0.6):
+    ch = SystemChannel(M, lambda_total, minW, maxW)
+    success_log = []
+
+    T_warmup = int(T_total * warmup_ratio)
+    for _ in range(T_total):
+        t = ch.time
+
+        # Генерация пакетов и планирование
+        for a in ch.abonents:
+            a.generate_arrivals(t)
+        for a in ch.abonents:
+            a.schedule_head_if_needed(t)
+
+        # Передача
+        senders = [a for a in ch.abonents if a.has_scheduled_in_slot(t)]
+
+        if len(senders) == 1:
+            sender = senders[0]
+            sender.notify_result('SUCCESS', t)
+            # сохраняем только после прогрева
+            if t >= T_warmup:
+                success_log.append((t, sender.id))
+        elif len(senders) > 1:
+            for s in senders:
+                s.notify_result('COLLISION', t)
+
+        ch.time += 1
+
+    return success_log, T_warmup, T_total
+
+
+def plot_success_scatter(success_log, lambda_total, minW, maxW, T_warmup, T_total):
+    if not success_log:
+        print(f"Нет успешных передач для $\\lambda_{{вх}}$={lambda_total}")
+        return
+
+    times, ids = zip(*success_log)
+    plt.figure(figsize=(8, 5))
+    plt.scatter(times, ids, s=8, alpha=0.6)
+    plt.xlabel("Номер слота T")
+    plt.ylabel("ID абонента (успешная передача)")
+    plt.title(f"Успешные передачи: $\\lambda_{{вх}}$={lambda_total}, W=[{minW},{maxW}]")
+    plt.axvline(T_warmup, color='red', linestyle='--', label='конец прогрева')
+    plt.grid(True)
+    plt.legend(loc='upper right')
+    plt.tight_layout()
+    # plt.show()
+
+
+def run_and_log_all_transmissions(M: int, lambda_total: float, T_total: int,
+                                  minW: int, maxW: int, warmup_ratio: float = 0.6):
+    ch = SystemChannel(M, lambda_total, minW, maxW)
+    transmissions = []
+
+    T_warmup = int(T_total * warmup_ratio)
+    for _ in range(T_total):
+        t = ch.time
+
+        for a in ch.abonents:
+            a.generate_arrivals(t)
+        for a in ch.abonents:
+            a.schedule_head_if_needed(t)
+
+        senders = [a for a in ch.abonents if a.has_scheduled_in_slot(t)]
+
+        if len(senders) == 0:
+            result = 'EMPTY'
+        elif len(senders) == 1:
+            result = 'SUCCESS'
+            senders[0].notify_result('SUCCESS', t)
+        else:
+            result = 'COLLISION'
+            for s in senders:
+                s.notify_result('COLLISION', t)
+
+        if t >= T_warmup:
+            for s in senders:
+                transmissions.append((t, s.id, result))
+
+        ch.time += 1
+
+    return transmissions, T_warmup, T_total
+
+
+def plot_all_transmissions(transmissions, lambda_total, minW, maxW, T_warmup, T_total):
+    if not transmissions:
+        print(f"Нет событий для $\\lambda_{{вх}}$={lambda_total}")
+        return
+
+    times_success = [t for (t, _, r) in transmissions if r == 'SUCCESS']
+    ids_success = [i for (_, i, r) in transmissions if r == 'SUCCESS']
+    times_coll = [t for (t, _, r) in transmissions if r == 'COLLISION']
+    ids_coll = [i for (_, i, r) in transmissions if r == 'COLLISION']
+
+    plt.figure(figsize=(8, 5))
+    plt.scatter(times_success, ids_success, s=10, color='blue', alpha=0.6, label='SUCCESS')
+    plt.scatter(times_coll, ids_coll, s=10, color='red', alpha=0.4, label='COLLISION')
+    plt.axvline(T_warmup, color='green', linestyle='--', label='конец прогрева')
+    plt.xlabel("Номер слота T")
+    plt.ylabel("ID абонента (все передачи)")
+    plt.title(f"Все передачи (успехи и коллизии): $\\lambda_{{вх}}$={lambda_total}, W=[{minW},{maxW}]")
+    plt.legend(loc='upper right')
+    plt.grid(True)
+    plt.tight_layout()
+    # plt.show()
+
+
+
 if __name__ == "__main__":
     # Была подтверждена работоспособность на паре
 
     M = 10
     T = 150_000
     minW = 1
-    maxW = 1
+    maxW = 1024
     max_queue_size = 150_000
     trials = 1
 
-    lambdas = np.linspace(0.00001, 0.9, 20)
+    lambdas = np.linspace(0.000001, 0.6, 13)
 
     experiment_plot(M=M, lambdas=lambdas, T=T, minW=minW, maxW=maxW,
                     max_queue_size=max_queue_size, trials=trials)
+
+
+    # ------------------ДОПОЛНИТЕЛЬНОЕ ЗАДАНИЕ--------------------
+    T_total = 150_000
+    count_slots = 2000
+    warmup_ratio = 1 - count_slots / T_total
+    for lam in [0.1, 0.6]:
+        print(f"\nСимуляция для λ={lam}...")
+        success_log, T_warmup, T_total = run_and_log_successes(
+            M, lam, T_total=T_total, minW=minW, maxW=maxW, warmup_ratio=warmup_ratio
+        )
+        plot_success_scatter(success_log, lam, minW, maxW, T_warmup, T_total)
+
+    for lam in [0.1, 0.6]:
+        print(f"\nСимуляция (все передачи) для λ={lam}...")
+        transmissions, T_warmup, T_total = run_and_log_all_transmissions(
+            M, lam, T_total=T_total, minW=minW, maxW=maxW, warmup_ratio=warmup_ratio
+        )
+        plot_all_transmissions(transmissions, lam, minW, maxW, T_warmup, T_total)
+
+
+    plt.show()
+    input("Press any key for process finish...")

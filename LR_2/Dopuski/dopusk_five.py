@@ -40,6 +40,6 @@ def visualize_go_back_n(tau, p, K):
 if __name__ == "__main__":
     tau = 4
     p = 0.3
-    K = 30
+    K = 3000
 
     visualize_go_back_n(tau, p, K)

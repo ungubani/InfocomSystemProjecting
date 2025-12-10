@@ -5,22 +5,17 @@ from collections import deque
 
 
 class Message:
-    """Класс, представляющий сообщение в системе"""
-
     def __init__(self, arrival_time):
         self.arrival_time = arrival_time  # Время поступления сообщения
         self.attempt_count = 0  # Количество попыток передачи
 
 
 class Abonent:
-    """Класс, представляющий абонента в сети"""
-
     def __init__(self, queue_size=-1):
         self.queue_size = queue_size  # -1 означает неограниченную очередь
         self.queue = deque(maxlen=queue_size if queue_size != -1 else None)
 
     def add_message(self, msg):
-        """Добавление сообщения в очередь"""
         if self.queue_size == -1 or len(self.queue) < self.queue_size:
             self.queue.append(msg)
             return True
@@ -28,8 +23,6 @@ class Abonent:
 
 
 class ALOHASimulation:
-    """Основной класс для имитационного моделирования протокола ALOHA"""
-
     def __init__(self, M, lambda_val, p, case_type, queue_size=-1, simulation_windows=100000):
         self.M = M  # Количество абонентов
         self.lambda_val = lambda_val  # Интенсивность входящего трафика
@@ -52,7 +45,6 @@ class ALOHASimulation:
         self.transmission_attempts = []
 
     def simulate(self):
-        """Проведение имитации"""
         for n in range(self.simulation_windows):
             transmissions = 0  # Счетчик попыток передачи
             transmitting_abonent = None  # Абонент, пытающийся передать
@@ -69,7 +61,7 @@ class ALOHASimulation:
                         transmit = random.random() < self.p
                     else:
                         # Случай 'b': первая попытка передается всегда, последующие - с вероятностью p
-                        if msg.attempt_count == 0:
+                        if msg.attempt_count == 0 and len(abonent.queue) == 1:
                             transmit = True
                         else:
                             transmit = random.random() < self.p
@@ -89,19 +81,22 @@ class ALOHASimulation:
 
             # Генерация новых сообщений
             for abonent in self.abonents:
-                if random.random() < self.lambda_val / self.M:
+                for _ in range(np.random.poisson(self.lambda_val / self.M)):
                     arrival_time = n + random.random()  # Случайное время в пределах окна
                     new_msg = Message(arrival_time)
                     abonent.add_message(new_msg)
+                # if random.random() < self.lambda_val / self.M:
+                #     arrival_time = n + random.random()  # Случайное время в пределах окна
+                #     new_msg = Message(arrival_time)
+                #     abonent.add_message(new_msg)
 
-            # Сбор статистики по сообщений в системе
+            # Сбор статистики сообщений в системе
             total_messages = sum(len(abonent.queue) for abonent in self.abonents)
             self.total_messages_in_system += total_messages
             self.messages_in_system.append(total_messages)
             self.transmission_attempts.append(transmissions)
 
     def get_results(self):
-        """Возвращает результаты симуляции"""
         avg_delay = self.total_delay / self.total_messages_transmitted if self.total_messages_transmitted > 0 else 0
         avg_messages = self.total_messages_in_system / self.simulation_windows
         output_rate = self.total_messages_transmitted / self.simulation_windows
@@ -116,16 +111,13 @@ class ALOHASimulation:
         }
 
 
-def run_comparison(queue_size=-1):
-    """Запуск сравнения двух случаев ALOHA"""
+def run_comparison(M, p, queue_size=-1, lambdas=np.linspace(0.01, 0.4, 31), simulation_windows = 100_000):
     # Параметры симуляции
-    M = 5  # Количество абонентов
-    lambdas = np.linspace(0.01, 0.4, 31)  # Значения lambda для исследования
-    p = 1 / M  # Вероятность передачи
-    simulation_windows = 100_000  # Количество окон имитации
+    lambdas = lambdas  # Значения lambda для исследования
+    simulation_windows = simulation_windows  # Количество окон имитации
 
     # Теоретическое значение λ_кр = 1/e
-    lambda_critical = 1 / np.e
+    lambda_critical = M * p * (1 - p) ** (M - 1)
 
     # Результаты для случаев 'a' и 'b'
     results_a = {'delay': [], 'messages': [], 'output': []}
@@ -154,41 +146,53 @@ def run_comparison(queue_size=-1):
     # Построение отдельных графиков
 
     # График 1: Средняя задержка
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(7, 4.5))
     plt.plot(lambdas, results_a['delay'], 'b-', linewidth=2, label=f'Случай A (всегда p={p:.3f})')
     plt.plot(lambdas, results_b['delay'], 'r-', linewidth=2, label=f'Случай B (первая=1, потом p={p:.3f})')
-    plt.axvline(x=lambda_critical, color='k', linestyle='--', alpha=0.7, label=f'λ_кр=1/e≈{lambda_critical:.3f}')
+    plt.axvline(x=lambda_critical, color='k', linestyle='--', alpha=0.7, label='$\\lambda_{crit.}=M*p*(1-p)^{(M-1)}$')
     plt.xlabel('Интенсивность входного потока (λ)')
     plt.ylabel('Средняя задержка')
-    plt.title('Зависимость средней задержки от интенсивности входного потока')
+    plt.title(f'Зависимость средней задержки от интенсивности входного потока (M={M})')
     plt.legend()
     plt.grid(True, alpha=0.3)
-
+    plt.show()
 
     # График 2: Среднее число сообщений в системе
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(7, 4.5))
     plt.plot(lambdas, results_a['messages'], 'b-', linewidth=2, label=f'Случай A (всегда p={p:.3f})')
     plt.plot(lambdas, results_b['messages'], 'r-', linewidth=2, label=f'Случай B (первая=1, потом p={p:.3f})')
-    plt.axvline(x=lambda_critical, color='k', linestyle='--', alpha=0.7, label=f'λ_кр=1/e≈{lambda_critical:.3f}')
+    plt.axvline(x=lambda_critical, color='k', linestyle='--', alpha=0.7, label='$\\lambda_{crit.}=M*p*(1-p)^{(M-1)}$')
     plt.xlabel('Интенсивность входного потока (λ)')
     plt.ylabel('Среднее число сообщений в системе')
-    plt.title('Зависимость среднего числа сообщений от интенсивности входного потока')
+    plt.title(f'Зависимость среднего числа сообщений от интенсивности входного потока (M={M})')
     plt.legend()
     plt.grid(True, alpha=0.3)
+    plt.show()
 
     # График 3: Выходная интенсивность
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(7, 4.5))
     plt.plot(lambdas, results_a['output'], 'b-', linewidth=2, label=f'Случай A (всегда p={p:.3f})')
     plt.plot(lambdas, results_b['output'], 'r-', linewidth=2, label=f'Случай B (первая=1, потом p={p:.3f})')
     plt.plot(lambdas, lambdas, 'g--', linewidth=2, label='Входная интенсивность')
-    plt.axvline(x=lambda_critical, color='k', linestyle='--', alpha=0.7, label=f'λ_кр=1/e≈{lambda_critical:.3f}')
+    plt.axvline(x=lambda_critical, color='k', linestyle='--', alpha=0.7, label='$\\lambda_{crit.}=M*p*(1-p)^{(M-1)}$')
     plt.xlabel('Интенсивность входного потока (λ)')
     plt.ylabel('Интенсивность выходного потока')
-    plt.title('Зависимость выходной интенсивности от входной')
+    plt.title(f'Зависимость выходной интенсивности от входной (M={M})')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.show()
 
 
 if __name__ == "__main__":
-    run_comparison()
+    # Основные параметры моделирования - можно легко менять
+    M = 15  # Количество абонентов
+    p = 0.1  # Вероятность передачи
+
+    # run_comparison(M, p)
+
+    # ИЛИ дополнить так:
+    lambdas = np.linspace(0.3, 0.4, 11)
+    simulation_windows = 200_000
+    queue_size = -1
+
+    run_comparison(M, p, queue_size=queue_size, lambdas=lambdas, simulation_windows=simulation_windows)
